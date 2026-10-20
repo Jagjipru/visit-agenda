@@ -261,6 +261,10 @@ body.view #bVisits{display:none!important}
 .vlist li.cur{border-color:var(--green);background:color-mix(in srgb,var(--lime) 22%,#fff)}
 .vlist .vn{flex:1 1 180px;min-width:0;text-align:left;background:none;border:0;cursor:pointer;font-weight:600;font-size:1rem;color:var(--green);padding:6px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vlist .vm{font-size:.8125rem;color:var(--muted)}
+.abbar{margin:10px 16px 0;padding:11px 16px;border-radius:12px;background:#fff7e6;border:1px solid #f0c36d;font-size:.9375rem;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.abbar[hidden]{display:none}
+.abbar b{color:#7a4b00}.abbar .grow{flex:1;min-width:200px}
+.abbar.bad{background:#fdecea;border-color:#e5a29b}
 .starter{margin:0 0 12px;padding:12px 16px;border-radius:12px;background:color-mix(in srgb,var(--lime) 28%,#fff);border:1px solid color-mix(in srgb,var(--green) 25%,#fff);font-size:.9375rem;line-height:1.5}
 .starter b{color:var(--green)}
 </style>
@@ -290,6 +294,7 @@ body.view #bVisits{display:none!important}
   <input type="file" id="fileLogo" accept="image/*" hidden>
   <input type="file" id="fileImport" accept=".json,application/json" hidden>
 </header>
+<div id="abBar" class="abbar" hidden></div>
 
 <div class="layout"><main id="main"></main></div>
 <div id="printSheet"></div>
@@ -478,6 +483,7 @@ function save(){
   try{
     const e=LIB.order.find(o=>o.id===LIB.current); if(e) e.name=state.cfg.title||"Untitled visit";
     writeVisit(LIB.current,state); saveIdx();
+    try{ abSchedule(); }catch(_){}
   }catch(err){ toast("Could not auto-save here. Use Settings > Data to save a master file."); }
 }
 let state = VIEW ? (load() || normalise(blankSeed())) : initLibrary();
@@ -833,6 +839,7 @@ function drawSettings(){
     body=`<div class="datarow"><div><b>Save master file</b><span>Downloads this editable file with all your visits inside. Opens the same in any browser.</span></div><button class="btn primary" data-act="savemaster">Save master file</button></div>
       <div class="datarow"><div><b>Shortcut icon</b><span>Saves the app icon as a plain .ico file. Use it to give your desktop shortcut a professional icon (see the user guide).</span></div><button class="btn" data-act="icon">Download icon</button></div>
       <div class="datarow"><div><b>Load example agenda</b><span>Replaces days, items, attendees and venues with a sample. Branding is kept.</span></div><button class="btn" data-act="example">Load example</button></div>
+      <div class="datarow" id="abRow">${typeof abRowInner==="function"?abRowInner():""}</div>
       <div class="datarow"><div><b>Back up the agenda</b><span>Saves this visit as a JSON file you can re-import later.</span></div><button class="btn" data-act="backup">Download backup</button></div>
       <div class="datarow"><div><b>Back up all visits</b><span>One JSON file with every visit in your library.</span></div><button class="btn" data-act="backupAll">Back up all</button></div>
       <div class="datarow"><div><b>Restore from a backup</b><span>A single-visit file replaces the current visit. An all-visits file adds its visits to your library.</span></div><button class="btn" data-act="restore">Choose file</button></div>
@@ -944,6 +951,9 @@ function onSettingsClick(e){
   else if(act==="whitea"||act==="whiteb"){state.cfg.logoBg[act.slice(-1)]="#ffffff";save();renderBrand();drawSettings();}
   else if(act==="savemaster") makeFile("master");
   else if(act==="icon") downloadIcon();
+  else if(act==="abSetup") abSetup();
+  else if(act==="abResume") abResume();
+  else if(act==="abOff") abOff();
   else if(act==="example"){
     if(state.items.length&&!confirm("Replace the current days, agenda items, attendees and venues with an example? Branding is kept.")) return;
     const ex=exampleData(state.cfg.tags[0].name,state.cfg.tags[1].name);
@@ -1468,6 +1478,85 @@ $("#bShare").onclick=()=>makeFile("view");
 if(VIEW){
   $(".titles p").insertAdjacentHTML("afterend",'<p class="vb" title="Version '+esc(CFG.label||"")+'">Read only View</p>');
   document.title=document.title+" (view only)";
+}
+
+
+/* ===== automatic backup: one file chosen once, rewritten after every change (Edge and Chrome) ===== */
+const AB={h:null,state:"off",last:0,timer:null,skip:false,err:""};
+const ABSUP=!VIEW&&typeof window.showSaveFilePicker==="function"&&typeof indexedDB!=="undefined";
+function abDB(){return new Promise((res,rej)=>{const r=indexedDB.open("visit-agenda-ab",1);r.onupgradeneeded=()=>r.result.createObjectStore("h");r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+async function abGet(){try{const db=await abDB();return await new Promise(res=>{const q=db.transaction("h").objectStore("h").get("handle");q.onsuccess=()=>res(q.result||null);q.onerror=()=>res(null);});}catch(e){return null;}}
+async function abPut(h){try{const db=await abDB();await new Promise((res,rej)=>{const tx=db.transaction("h","readwrite");if(h)tx.objectStore("h").put(h,"handle");else tx.objectStore("h").delete("handle");tx.oncomplete=res;tx.onerror=()=>rej(tx.error);});}catch(e){}}
+const abBlank=()=>LIB.order.length<=1&&!state.items.length;
+function abPayload(){const vs=LIB.order.map(o=>o.id===LIB.current?state:readVisit(o.id)).filter(Boolean);return JSON.stringify({agendaLibrary:1,visits:vs},null,2);}
+async function abWrite(force){
+  if(!ABSUP||!AB.h) return false;
+  if(!force&&abBlank()) return false; /* never overwrite a backup with an empty planner */
+  try{
+    const p=await AB.h.queryPermission({mode:"readwrite"});
+    if(p!=="granted"){AB.state="paused";abUI();return false;}
+    const w=await AB.h.createWritable(); await w.write(abPayload()); await w.close();
+    AB.last=Date.now(); AB.state="on"; AB.err="";
+    try{localStorage.setItem(bkKey,String(AB.last));}catch(e){}
+    abUI(); return true;
+  }catch(e){AB.state="error";AB.err=(e&&e.message)||"unknown error";abUI();return false;}
+}
+function abSchedule(){ if(!ABSUP||!AB.h) return; clearTimeout(AB.timer); AB.timer=setTimeout(()=>abWrite(false),1500); }
+const abTime=()=>new Date(AB.last).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+function abRowInner(){
+  if(!ABSUP) return '<div><b>Automatic backup</b><span>Needs Microsoft Edge or Google Chrome. In this browser, use the manual backups below.</span></div>';
+  if(!AB.h) return '<div><b>Automatic backup</b><span>Off. Choose a file once and the planner saves every change to it. A OneDrive folder is a good home.</span></div><button class="btn primary" data-act="abSetup">Set up</button>';
+  const msg=AB.state==="on"?"On. Last saved "+(AB.last?abTime():"just now")+" to "+esc(AB.h.name||"your backup file")+".":AB.state==="paused"?"Paused. Click Resume to start saving again.":"Could not save: "+esc(AB.err);
+  const btn=AB.state==="paused"?'<button class="btn primary" data-act="abResume">Resume</button>':'<button class="btn" data-act="abSetup">Change file</button>';
+  return '<div><b>Automatic backup</b><span>'+msg+'</span></div><span class="grow"></span>'+btn+' <button class="btn" data-act="abOff">Turn off</button>';
+}
+function abUI(){
+  const r=document.getElementById("abRow"); if(r) r.innerHTML=abRowInner();
+  const bar=document.getElementById("abBar"); if(!bar) return;
+  let h="", bad=false;
+  if(ABSUP&&!AB.h&&!AB.skip) h='<span class="grow"><b>Protect your work.</b> Choose where to keep an automatic backup. One click now, and every change saves itself.</span><button class="btn primary" data-act="abSetup">Set up auto-backup</button><button class="btn" data-act="abLater">Not now</button>';
+  else if(AB.h&&AB.state==="paused") h='<span class="grow"><b>Auto-backup is paused.</b> Click once to start saving to your backup file again.</span><button class="btn primary" data-act="abResume">Resume</button>';
+  else if(AB.h&&AB.state==="error"){bad=true;h='<span class="grow"><b>Auto-backup could not save.</b> '+esc(AB.err)+'</span><button class="btn primary" data-act="abSetup">Choose file again</button>';}
+  bar.innerHTML=h; bar.hidden=!h; bar.classList.toggle("bad",bad);
+}
+async function abSetup(){
+  try{
+    const h=await window.showSaveFilePicker({suggestedName:"Visit-Agenda-Auto-Backup.json",startIn:"documents",types:[{description:"Visit Agenda backup",accept:{"application/json":[".json"]}}]});
+    let existing=null;
+    try{ const txt=await (await h.getFile()).text(); if(txt.trim()){ const s=JSON.parse(txt); if(s&&s.agendaLibrary&&Array.isArray(s.visits)) existing=s.visits.filter(valid).map(normalise); } }catch(_){}
+    if(existing&&existing.length){
+      if(abBlank()){
+        if(confirm("This file already holds a backup of "+existing.length+" visit"+(existing.length===1?"":"s")+". Load them into the planner?\n\nOK = load them and keep saving to this file.\nCancel = choose a different file.")){
+          AB.h=h; await abPut(h);
+          let last=null; existing.forEach(v=>{last=addVisit(v);}); saveIdx(); switchVisit(last); await abWrite(true); toast("Backup loaded. Auto-backup is on"); abUI(); return;
+        } else return;
+      } else if(!confirm("This file already holds a backup. Replace it with your current work, and keep saving to it?")) return;
+    }
+    AB.h=h; await abPut(h); AB.skip=false;
+    const ok=await abWrite(true);
+    toast(ok?"Auto-backup is on":"Could not write to that file");
+  }catch(e){ if(!e||e.name!=="AbortError") toast("Auto-backup could not be set up here"); }
+  abUI();
+}
+async function abResume(){
+  try{ const p=await AB.h.requestPermission({mode:"readwrite"}); if(p==="granted"){ await abWrite(true); toast("Auto-backup resumed"); } }catch(e){}
+  abUI();
+}
+async function abOff(){ AB.h=null; AB.state="off"; clearTimeout(AB.timer); await abPut(null); abUI(); toast("Auto-backup is off"); }
+if(ABSUP){
+  document.getElementById("abBar").addEventListener("click",e=>{
+    const b=e.target.closest("[data-act]"); if(!b) return;
+    if(b.dataset.act==="abSetup") abSetup(); else if(b.dataset.act==="abResume") abResume(); else if(b.dataset.act==="abLater"){AB.skip=true;abUI();}
+  });
+  document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden"&&AB.timer){ clearTimeout(AB.timer); abWrite(false); } });
+  (async()=>{
+    AB.h=await abGet();
+    if(AB.h){
+      try{ const p=await AB.h.queryPermission({mode:"readwrite"}); AB.state=p==="granted"?"on":"paused"; }catch(e){ AB.state="paused"; }
+      if(AB.state==="on") abWrite(false);
+    }
+    abUI();
+  })();
 }
 
 render();
