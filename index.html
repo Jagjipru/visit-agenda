@@ -879,7 +879,7 @@ function openSubform(kind,id){
   const onKey=e=>{if(e.key==="Escape") close();};
   const close=()=>{ov.remove();document.removeEventListener("keydown",onKey);};
   document.addEventListener("keydown",onKey);
-  ov.addEventListener("click",e=>{ if(e.target===ov||e.target.closest("[data-x]")) close(); });
+  ov.addEventListener("click",e=>{ if(e.target.closest("[data-x]")) close(); });
   f.addEventListener("submit",e=>{
     e.preventDefault();
     const name=f.nm.value.trim(); if(!name){toast("Enter a name");f.nm.focus();return;}
@@ -911,7 +911,7 @@ function onBrandInput(e){
   save(); renderBrand(); renderMain();
 }
 function onSettingsClick(e){
-  if(e.target===sOv||e.target.closest("[data-x]")){closeSettings();return;}
+  if(e.target.closest("[data-x]")){closeSettings();return;}
   const tb=e.target.closest("[data-tab]"); if(tb){sTab=tb.dataset.tab;drawSettings();return;}
   const b=e.target.closest("[data-act]"); if(!b) return;
   const act=b.dataset.act, li=b.closest("li"), id=li&&li.dataset.id;
@@ -1335,7 +1335,7 @@ function openInvite(id){
     }
   });
   ov.addEventListener("click",e=>{
-    if(e.target===ov||e.target.closest("[data-x]")) close();
+    if(e.target.closest("[data-x]")) close();
     else if(e.target.closest("[data-all]")) ov.querySelectorAll("[data-aid]:not(:disabled)").forEach(c=>c.checked=true);
     else if(e.target.closest("[data-none]")) ov.querySelectorAll("[data-aid]").forEach(c=>c.checked=false);
     else if(e.target.closest("[data-copy]")){
@@ -1416,7 +1416,7 @@ function openVisits(){
   const onKey=e=>{ if(e.key==="Escape") close(); };
   document.addEventListener("keydown",onKey);
   vOv.addEventListener("click",e=>{
-    if(e.target===vOv||e.target.closest("[data-x]")){ close(); return; }
+    if(e.target.closest("[data-x]")){ close(); return; }
     const b=e.target.closest("[data-act]"); if(!b) return;
     const act=b.dataset.act, li=b.closest("li"), id=li&&li.dataset.id;
     if(act==="open"){ close(); switchVisit(id); }
