@@ -212,6 +212,9 @@ label.f input:disabled,label.f select:disabled,label.f textarea:disabled{backgro
 .pp-key b{display:inline-block;min-width:21mm;color:var(--green);text-transform:uppercase;font-size:7.5pt;letter-spacing:.06em}
 .pp-key span{display:inline-block;margin-right:4mm}
 .pp-key em{font-style:normal;color:#52655f}
+.one .logos>.logo-slot:last-child,.one .logos .x{display:none}
+.one .logo-slot{height:54px;padding:6px 14px}
+.one .logo-slot img{max-width:260px}
 .verline{padding:7px 18px;border-top:1px solid var(--line);font-size:.8rem;color:var(--muted);flex:none;background:#fff}
 .pp-foot{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;font-size:8pt;color:#52655f;border-top:1px solid #d6d0c2;padding-top:1.2mm;background:#fff}
 @media (max-width:760px){.frow{grid-template-columns:1fr}.addrow,.addrow.room{grid-template-columns:1fr}.layout{padding:14px 10px 40px}}
@@ -427,7 +430,7 @@ const SRC = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
 if(VIEW) document.body.classList.add("view");
 /* ========= constants ========= */
 /* the visible day runs from START to END (IST, in minutes). Set in Settings > Branding > Timeline. */
-const APP_VERSION="v2.3 · 21 Oct 2026";
+const APP_VERSION="v2.4 · 23 Oct 2026";
 let START = 9*60, END = 23*60;
 const STEP = 30, SNAP = 15; let ROW = 60;
 let SLOTS = (END-START)/STEP;
@@ -568,6 +571,7 @@ function valid(s){
 }
 /* older saves and imports have no status: locked items count as confirmed, the rest as tentative */
 function orgCls(a){
+  if(state&&state.cfg&&state.cfg.mode==="one") return "";
   const o=((a&&a.org)||"").trim().toLowerCase(); if(!o) return "";
   const tg=(state&&state.cfg&&state.cfg.tags)||[];
   return tg[0]&&o===tg[0].name.trim().toLowerCase()?"o-1":tg[1]&&o===tg[1].name.trim().toLowerCase()?"o-2":"";
@@ -580,7 +584,7 @@ function normalise(s){
     tags:[Object.assign({},d.tags[0],(c.tags||[])[0]||{}),Object.assign({},d.tags[1],(c.tags||[])[1]||{})],
     logoBg:Object.assign({},d.logoBg,c.logoBg||{}),
     dayStart:Number.isFinite(c.dayStart)?c.dayStart:d.dayStart, dayEnd:Number.isFinite(c.dayEnd)?c.dayEnd:d.dayEnd,
-    types:cleanTypes(c.types)
+    types:cleanTypes(c.types), mode:c.mode==="one"?"one":"two"
   };
   if(s.cfg.dayEnd-s.cfg.dayStart<60){ s.cfg.dayStart=d.dayStart; s.cfg.dayEnd=d.dayEnd; }
   s.logos=Object.assign({a:"",b:""},{a:(s.logos&&s.logos.a)||"",b:(s.logos&&s.logos.b)||""});
@@ -696,6 +700,7 @@ function renderBrand(){
   st.setProperty("--on-orange",crHex("#1a1000",k.accent)>=crHex("#ffffff",k.accent)?"#1a1000":"#ffffff");
   st.setProperty("--orange-d",ensureContrast(mixc(k.accent,"#000000",.4),"#ffffff",4.5));
   st.setProperty("--org1",c.tags[0].color); st.setProperty("--org2",c.tags[1].color);
+  document.body.classList.toggle("one",c.mode==="one");
   $("#logoA").innerHTML='<img alt="Logo 1" src="'+logoSrc("a")+'">'; $("#logoA").style.background=c.logoBg.a;
   $("#logoB").innerHTML='<img alt="Logo 2" src="'+logoSrc("b")+'">'; $("#logoB").style.background=c.logoBg.b;
   $("#hTitle").textContent=c.title||"Visit Agenda Planner"; $("#hSub").textContent=c.subtitle||"";
@@ -1029,10 +1034,13 @@ function drawSettings(){
   }else if(sTab==="brand"){
     const c=state.cfg, k=c.colors;
     const logoRow=(key,n)=>`<div class="row"><img alt="" src="${logoSrc(key)}" style="height:40px;max-width:140px;object-fit:contain;background:${esc(c.logoBg[key])};border:1px solid var(--line);border-radius:8px;padding:4px 8px">
-        <button class="btn small" data-act="logo${key}">Upload logo ${n}</button><button class="btn small" data-act="rmlogo${key}">Remove</button>
+        <button class="btn small" data-act="logo${key}">Upload logo${state.cfg.mode==="one"?"":" "+n}</button><button class="btn small" data-act="rmlogo${key}">Remove</button>
         <label style="display:flex;align-items:center;gap:6px;font-size:.875rem">Background <input type="color" data-lbg="${key}" value="${esc(c.logoBg[key])}" style="width:44px;height:30px;padding:1px"></label>
         <button class="btn small" data-act="white${key}">White</button></div>`;
-    body=`<div class="bgrp"><b>Header text</b>
+    body=`<div class="bgrp"><b>Visit type</b>
+        <label class="f">Who is involved<select data-cfg="mode"><option value="two" ${c.mode!=="one"?"selected":""}>Two organisations (host and client)</option><option value="one" ${c.mode==="one"?"selected":""}>One organisation (internal visit)</option></select></label>
+        <span class="hint" style="margin:0">One organisation shows a single logo, with no company colours on names. This setting is saved per visit.</span></div>
+      <div class="bgrp"><b>Header text</b>
         <label class="f">Title<input data-cfg="title" value="${esc(c.title)}" placeholder="Visit Agenda Planner"></label>
         <label class="f">Line under the title (location, dates, time zones)<input data-cfg="subtitle" value="${esc(c.subtitle)}" placeholder="e.g. London · 4–6 March 2027 · IST and UK times"></label>
         <span class="hint" style="margin:0">The title and this line also appear on the PDF exports.</span></div>
@@ -1049,9 +1057,9 @@ function drawSettings(){
           <label class="f">Day ends (IST)<select data-hrs="dayEnd">${timeOpts(60,24*60,c.dayEnd)}</select></label>
         </div>
         <span class="hint" style="margin:0">The grid shows this range in half-hour rows, with UK time alongside. You cannot shorten it past an existing agenda item.</span></div>
-      <div class="bgrp"><b>Logos</b>${logoRow("a",1)}${logoRow("b",2)}
+      <div class="bgrp"><b>Logos</b>${logoRow("a",1)}${c.mode==="one"?"":logoRow("b",2)}
         <span class="hint" style="margin:0">Click a logo in the header to replace it too. Set the background to suit each logo.</span></div>
-      <div class="bgrp"><b>Company colour tags</b>
+      ${c.mode==="one"?"":`<div class="bgrp"><b>Company colour tags</b>
         <div class="frow">
           <label class="f">Company 1<input data-tagn="0" value="${esc(c.tags[0].name)}"></label>
           <label class="f">Colour<input type="color" data-tagc="0" value="${esc(c.tags[0].color)}"></label>
@@ -1060,7 +1068,7 @@ function drawSettings(){
           <label class="f">Company 2<input data-tagn="1" value="${esc(c.tags[1].name)}"></label>
           <label class="f">Colour<input type="color" data-tagc="1" value="${esc(c.tags[1].color)}"></label>
         </div>
-        <span class="hint" style="margin:0">Attendees whose Organisation matches a name get a light tint of that colour. Anyone else stays neutral.</span></div>
+        <span class="hint" style="margin:0">Attendees whose Organisation matches a name get a light tint of that colour. Anyone else stays neutral.</span></div>`}
       <div class="bgrp"><b>Agenda item types (the legend)</b>
         ${c.types.map((ty,i)=>{const d=DEFAULT_TYPES.find(x=>x.id===ty.id),changed=d&&(ty.color||ty.label!==d.label);return `<div class="tyrow"><input type="color" data-tyc="${i}" value="${esc(typeHex(ty))}" aria-label="Colour for ${esc(ty.label)}"><input data-tyl="${i}" value="${esc(ty.label)}" maxlength="28" aria-label="Name of type ${i+1}">${d?(changed?`<button class="btn small" data-act="tyReset" data-i="${i}" title="Back to the standard name and colour">Reset</button>`:""):`<button class="btn small danger" data-act="tyDel" data-i="${i}">Remove</button>`}</div>`;}).join("")}
         ${c.types.length-DEFAULT_TYPES.length<MAX_EXTRA_TYPES?'<button class="btn small" data-act="tyAdd">+ Add type</button>':'<span class="hint" style="margin:0">You have reached the limit of 2 extra types.</span>'}
@@ -1147,7 +1155,7 @@ function onBrandInput(e){
   else if(el.dataset.tyl!=null){ if(c.types[+el.dataset.tyl]) c.types[+el.dataset.tyl].label=el.value.slice(0,28); }
   else if(el.dataset.tyc!=null){ if(c.types[+el.dataset.tyc]) c.types[+el.dataset.tyc].color=el.value; }
   else return;
-  save(); renderBrand(); renderMain();
+  save(); renderBrand(); renderMain(); if(el.dataset.cfg==="mode") drawSettings();
 }
 function onSettingsClick(e){
   if(e.target.closest("[data-x]")){closeSettings();return;}
